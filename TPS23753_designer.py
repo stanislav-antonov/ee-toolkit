@@ -42,10 +42,6 @@ class Designer:
 
         self.j = 1j
 
-        # ---- crossover target ----
-        self.F0 = 5.5e3
-        self.w0 = 2 * np.pi * self.F0
-
         # ---- Maximum adapter input current ----
         self.I_ADP_MAX = self.P_OUT_MAX / (self.V_ADP_MIN * self.N_FB)
 
@@ -154,13 +150,13 @@ class Designer:
         # location to be approximately 1 kHz, integrator zero capacitors are from 1 nF–10 nF, and low integrator
         # gain.
         self.F_IZ = 1e3
-        self.C_IZE = 4.7e-9
-        self.R_IZE = 1 / (2 * np.pi * self.F_IZ * self.C_IZE);
+        self.C_IZ_E = 4.7e-9
+        self.R_IZ_E = 1 / (2 * np.pi * self.F_IZ * self.C_IZ_E)
         
-        self.R_FBUE = self.R_IZE
+        self.R_FBU_E = self.R_IZ_E
         self.R_FBU = 41.2e3
 
-        self.R_FBLE = (self.V_REF * self.R_FBU) / (self.V_OUT_NOM - self.V_REF)
+        self.R_FBL_E = (self.V_REF * self.R_FBU) / (self.V_OUT_NOM - self.V_REF)
         self.R_FBL = 24.3e3
 
         # ---- Opto-Isolator ----
@@ -170,7 +166,8 @@ class Designer:
 
         # ---- Opto-Isolator LED Bias Current ----
         self.V_LED_OPTO_K = self.V_LED_OPTO + 0.15
-        self.R_OB = (self.V_OUT_NOM - self.V_LED_OPTO - self.V_LED_OPTO_K) / self.I_LED_OPTO
+        self.R_OB_E = (self.V_OUT_NOM - self.V_LED_OPTO - self.V_LED_OPTO_K) / self.I_LED_OPTO
+        self.R_OB = 402
 
         # ---- Opto-Isolator transistor bias current ----
         self.V_ZDC_MAX = 1.7
@@ -178,8 +175,10 @@ class Designer:
         self.V_B = 5
         self.V_CTL_MAX = self.V_ZDC_MAX + 2 * self.V_CS_MAX
         self.V_CTL_MOM = (self.V_ZDC_MAX + self.V_CTL_MAX) / 2
-        self.R_CTL = (self.V_B - self.V_ZDC_MAX) / (self.I_LED_OPTO * self.CTR_2mA)
-
+        
+        self.R_CTL_E = (self.V_B - self.V_ZDC_MAX) / (self.I_LED_OPTO * self.CTR_2mA)
+        self.R_CTL = 1.5e3
+        
         #
         # ==== Frequency characteristics ====
         #
@@ -189,85 +188,69 @@ class Designer:
         self.R_LOAD = (self.V_OUT_NOM ** 2) / self.P_OUT_MAX
         self.RHPZ = self.R_LOAD * ( ((self.N_PS * (1 - self.D_MAX_ACTUAL)) ** 2) / (2 * np.pi * self.D_MAX_ACTUAL * self.L_P) )
 
+        #
+        # ==== Loop compensation ====
+        #
 
-    def pretty(self):
-        def fmt(v, unit=""):
-            v_abs = abs(v)
+        # ---- Crossover frequency ----
+        self.F0 = 5.5e3
+        self.w0 = 2 * np.pi * self.F0
 
-            if v_abs >= 1e9:
-                return f"{v/1e9:.3g} G{unit}"
-            elif v_abs >= 1e6:
-                return f"{v/1e6:.3g} M{unit}"
-            elif v_abs >= 1e3:
-                return f"{v/1e3:.3g} k{unit}"
-            elif v_abs >= 1:
-                return f"{v:.3g} {unit}"
-            elif v_abs >= 1e-3:
-                return f"{v*1e3:.3g} m{unit}"
-            elif v_abs >= 1e-6:
-                return f"{v*1e6:.3g} µ{unit}"
-            elif v_abs >= 1e-9:
-                return f"{v*1e9:.3g} n{unit}"
-            else:
-                return f"{v:.3g} {unit}"
+        # ---- Overall transfer function ----
+        self.K_CTL = 2
 
-        print("\n=== DESIGN SUMMARY ===\n")
+        # ---- Compensate opto-isolator or inner loop ----
+        self.G_MO = 0.75 # initial estimate at F0
+        self.C_CTL_E = self.C_ctl(self.w0, self.G_MO)
+        self.C_CTL = 6.8e-9
 
-        print("---- Output ----")
-        print(f"Vout        : {fmt(self.V_OUT_NOM, 'V')}")
-        print(f"Iout max    : {fmt(self.I_OUT_MAX, 'A')}")
-        print(f"Pout max    : {fmt(self.P_OUT_MAX, 'W')}")
-        print(f"Ripple      : {fmt(self.V_OUT_RIPPLE, 'V')}")
+        # ---- Inner loop control zero resistor ----
+        self.R_ZCTL_E = self.R_CTL / 10
+        self.R_ZCTL = 160
 
-        print("\n---- Input ----")
-        print(f"PSE range      : {fmt(self.V_PSE_MIN, 'V')} - {fmt(self.V_PSE_MAX, 'V')}")
-        print(f"Adapter        : {fmt(self.V_ADP_NOM, 'V')} (min {fmt(self.V_ADP_MIN, 'V')})")
+        # ----- Outer loop compensation ----
+        self.G_MO = np.abs(self.gmo(self.w0))
+        self.R_IZ = self.R_FBU * ((1 / self.G_MO) - 1)
 
-        print("\n---- Transformer ----")
-        print(f"L_primary(est.): {fmt(self.L_PRIM, 'H')}")
-        print(f"L_primary      : {fmt(self.L_P, 'H')}")
-        print(f"Np:Ns(est.)    : {self.N_P_S:.2f}")
-        print(f"Np:Ns          : {self.N_PS:.2f}")
-        print(f"Np:Nbias(est.) : {self.N_P_B:.2f}")
-        print(f"Np:Nbias       : {self.N_PB:.2f}")
-        print(f"Ipk primary    : {fmt(self.I_PRIMARY_PEAK, 'A')}")
+        self.C_IZ = 5 / (2 * np.pi * self.R_IZ * self.F0)
+        self.C_IP = 1 / (20 * np.pi * self.R_IZ * self.F0)
+    
+    def fmt(self, v, unit=""):
+        v_abs = abs(v)
 
-        print("\n---- Primary Side ----")
-        print(f"Rcs(est.)      : {fmt(self.R_CS_MIN, 'Ω')}")
-        print(f"Rcs            : {fmt(self.R_CS, 'Ω')}")
-        print(f"Fswitch        : {fmt(self.FREQ_NOM, 'Hz')}")
-        print(f"Duty max       : {self.D_MAX_ACTUAL*100:.1f} %")
-
-        print("\n---- Snubber ----")
-        print(f"Csn(est.)      : {fmt(self.C_SN_MIN, 'F')}")
-        print(f"Csn            : {fmt(self.C_SN, 'F')}")
-        print(f"Rsn            : {fmt(self.R_SN, 'Ω')}")
-
-        print("\n---- Input Filter ----")
-        print(f"Cin min        : {fmt(self.C_IN_MIN, 'F')}")
-        print(f"Cin1           : {fmt(self.C_IN1, 'F')}")
-        print(f"Cin2           : {fmt(self.C_IN2, 'F')}")
-        print(f"Lin            : {fmt(self.L_IN, 'H')}")
-
-        print("\n---- Output Filter ----")
-        print(f"Cout min       : {fmt(self.C_OUT_MIN, 'F')}")
-        print(f"Cout1          : {fmt(self.C_OUT1, 'F')}")
-        print(f"Cout2          : {fmt(self.C_OUT2, 'F')}")
-
-        print("\n======================\n")
-
-        print("\n=== FEEDBACK CONTROL ===\n")
-
-        print("---- Shunt regulator ----")
-        print(f"Vref            : {fmt(self.V_REF, 'V')}")
+        if v_abs >= 1e9:
+            return f"{v/1e9:.3g} G{unit}"
+        elif v_abs >= 1e6:
+            return f"{v/1e6:.3g} M{unit}"
+        elif v_abs >= 1e3:
+            return f"{v/1e3:.3g} k{unit}"
+        elif v_abs >= 1:
+            return f"{v:.3g} {unit}"
+        elif v_abs >= 1e-3:
+            return f"{v*1e3:.3g} m{unit}"
+        elif v_abs >= 1e-6:
+            return f"{v*1e6:.3g} µ{unit}"
+        elif v_abs >= 1e-9:
+            return f"{v*1e9:.3g} n{unit}"
+        else:
+            return f"{v:.3g} {unit}"
+    
+    def C_ctl(self, w, gmo_target=0.75):
+        x = (self.R_CTL / self.R_OB) * (self.CTR_2mA / self.K_CTL) * (abs(self.mpf(w)) / gmo_target)
         
-        print("\n---- Voltage setpoint resistors ----")
-        print(f"R_FBU(est.)     : {fmt(self.R_FBUE, 'Ω')}")
-        print(f"R_FBU           : {fmt(self.R_FBU, 'Ω')}")
-        print(f"R_FBL(est.)     : {fmt(self.R_FBLE, 'Ω')}")
-        print(f"R_FBL           : {fmt(self.R_FBL, 'Ω')}")
+        if x >= 1:
+            raise ValueError(
+                f"No valid solution: loop gain too high at F0 → x = {x:.2f} ≥ 1\n"
+                f"→ Reduce crossover frequency or loop gain"
+            )
+
+        value = np.sqrt(1 - x**2) / ( w * self.R_CTL)
         
+        if value > 47e-9:
+            raise ValueError(f"Rctl capacitor value {self.fmt(value, 'F')} is too high")
         
+        return value
+
     # =========================
     # MPS current
     # ========================
@@ -293,16 +276,101 @@ class Designer:
     def mpf(self, w):
         return self.I_mps(w) * self.Z_out(w)
 
-    
-    # =========================
-    # Integrator transfer
-    # =========================
-    # def integrator(self, w):
-    #    j = self.j
-    #    num = 1 + j*w*self.R_IZ*self.C_IZ
-    #    den = j*w*self.R_FBU*self.C_IZ * (1 + j*w*self.R_IZ*self.C_IP)
-    #    return num / den
+    def opto_simplified(self, w):
+        return (self.R_CTL / self.R_OB) * self.CTR_2mA * (1 / (1 + self.j * w * self.C_CTL * self.R_CTL)) * (1 / self.K_CTL)
 
+    def gmo_simplified(self, w):
+        return self.mpf(w) * self.opto_simplified(w)
+    
+    def opto(self, w):
+        return (self.R_CTL / self.R_OB) * self.CTR_2mA * ((1 + self.j * w * self.R_ZCTL * self.C_CTL) / (1 + self.j * w * self.C_CTL * (self.R_CTL + self.R_ZCTL))) * (1 / self.K_CTL)
+    
+    def gmo(self, w):
+        return self.mpf(w) * self.opto(w)
+    
+    def integrator_simplified(self, w):
+        return 1 / (self.j * w * self.R_FBU * self.C_IZ)
+    
+    def integrator(self, w):
+        return (self.R_IZ / self.R_FBU) * ((1 + (1 / (self.j * w * self.R_IZ * self.C_IZ))) / (1 + self.j * w * self.R_IZ * self.C_IP))
+
+    def pretty(self):
+        print("\n=== DESIGN SUMMARY ===\n")
+
+        print("---- Output ----")
+        print(f"Vout        : {self.fmt(self.V_OUT_NOM, 'V')}")
+        print(f"Iout max    : {self.fmt(self.I_OUT_MAX, 'A')}")
+        print(f"Pout max    : {self.fmt(self.P_OUT_MAX, 'W')}")
+        print(f"Ripple      : {self.fmt(self.V_OUT_RIPPLE, 'V')}")
+
+        print("\n---- Input ----")
+        print(f"PSE range      : {self.fmt(self.V_PSE_MIN, 'V')} - {self.fmt(self.V_PSE_MAX, 'V')}")
+        print(f"Adapter        : {self.fmt(self.V_ADP_NOM, 'V')} (min {self.fmt(self.V_ADP_MIN, 'V')})")
+
+        print("\n---- Transformer ----")
+        print(f"L_primary(est.): {self.fmt(self.L_PRIM, 'H')}")
+        print(f"L_primary      : {self.fmt(self.L_P, 'H')}")
+        print(f"Np:Ns(est.)    : {self.N_P_S:.2f}")
+        print(f"Np:Ns          : {self.N_PS:.2f}")
+        print(f"Np:Nbias(est.) : {self.N_P_B:.2f}")
+        print(f"Np:Nbias       : {self.N_PB:.2f}")
+        print(f"Ipk primary    : {self.fmt(self.I_PRIMARY_PEAK, 'A')}")
+
+        print("\n---- Primary Side ----")
+        print(f"Rcs(est.)      : {self.fmt(self.R_CS_MIN, 'Ω')}")
+        print(f"Rcs            : {self.fmt(self.R_CS, 'Ω')}")
+        print(f"Fswitch        : {self.fmt(self.FREQ_NOM, 'Hz')}")
+        print(f"Duty max       : {self.D_MAX_ACTUAL*100:.1f} %")
+
+        print("\n---- Snubber ----")
+        print(f"Csn(est.)      : {self.fmt(self.C_SN_MIN, 'F')}")
+        print(f"Csn            : {self.fmt(self.C_SN, 'F')}")
+        print(f"Rsn            : {self.fmt(self.R_SN, 'Ω')}")
+
+        print("\n---- Input Filter ----")
+        print(f"Cin min        : {self.fmt(self.C_IN_MIN, 'F')}")
+        print(f"Cin1           : {self.fmt(self.C_IN1, 'F')}")
+        print(f"Cin2           : {self.fmt(self.C_IN2, 'F')}")
+        print(f"Lin            : {self.fmt(self.L_IN, 'H')}")
+
+        print("\n---- Output Filter ----")
+        print(f"Cout min       : {self.fmt(self.C_OUT_MIN, 'F')}")
+        print(f"Cout1          : {self.fmt(self.C_OUT1, 'F')}")
+        print(f"Cout2          : {self.fmt(self.C_OUT2, 'F')}")
+
+        print("\n======================\n")
+
+        print("\n=== FEEDBACK CONTROL ===\n")
+
+        print("---- Shunt regulator ----")
+        print(f"Vref            : {self.fmt(self.V_REF, 'V')}")
+        
+        print("\n---- Voltage setpoint resistors ----")
+        print(f"R_FBU(est.)     : {self.fmt(self.R_FBU_E, 'Ω')}")
+        print(f"R_FBU           : {self.fmt(self.R_FBU, 'Ω')}")
+        
+        print(f"R_FBL(est.)     : {self.fmt(self.R_FBL_E, 'Ω')}")
+        print(f"R_FBL           : {self.fmt(self.R_FBL, 'Ω')}")
+
+        print("\n---- Opto-Isolator ----")
+        print(f"R_OB(est.)      : {self.fmt(self.R_OB_E, 'Ω')}")
+        print(f"R_OB            : {self.fmt(self.R_OB, 'Ω')}")
+        
+        print(f"R_CTL(est.)     : {self.fmt(self.R_CTL_E, 'Ω')}")
+        print(f"R_CTL           : {self.fmt(self.R_CTL, 'Ω')}")
+        
+        print(f"C_CTL(est.)     : {self.fmt(self.C_CTL_E, 'F')}")
+        print(f"C_CTL           : {self.fmt(self.C_CTL, 'F')}")
+        
+        print(f"R_ZCTL(est.)    : {self.fmt(self.R_ZCTL_E, 'Ω')}")
+        print(f"R_ZCTL          : {self.fmt(self.R_ZCTL, 'Ω')}")
+
+        print("\n---- Loop compensation ----")
+        print(f"F0              : {self.fmt(self.F0, 'Hz')}")
+        print(f"G_MO            : {self.G_MO:.2f}")
+        print(f"R_IZ            : {self.fmt(self.R_IZ, 'Ω')}")
+
+        
 
 
     def plot_mpf(self, fmin=1e3, fmax=1e6, points=1000):
