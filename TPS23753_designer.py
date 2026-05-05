@@ -280,13 +280,13 @@ class Designer:
         return (self.R_CTL / self.R_OB) * self.CTR_2mA * (1 / (1 + self.j * w * self.C_CTL * self.R_CTL)) * (1 / self.K_CTL)
 
     def gmo_simplified(self, w):
-        return self.mpf(w) * self.opto_simplified(w)
+        return -self.mpf(w) * self.opto_simplified(w)
     
     def opto(self, w):
         return (self.R_CTL / self.R_OB) * self.CTR_2mA * ((1 + self.j * w * self.R_ZCTL * self.C_CTL) / (1 + self.j * w * self.C_CTL * (self.R_CTL + self.R_ZCTL))) * (1 / self.K_CTL)
     
     def gmo(self, w):
-        return self.mpf(w) * self.opto(w)
+        return -self.mpf(w) * self.opto(w)
     
     def integrator_simplified(self, w):
         return 1 / (self.j * w * self.R_FBU * self.C_IZ)
@@ -294,6 +294,31 @@ class Designer:
     def integrator(self, w):
         return (self.R_IZ / self.R_FBU) * ((1 + (1 / (self.j * w * self.R_IZ * self.C_IZ))) / (1 + self.j * w * self.R_IZ * self.C_IP))
 
+    def fb(self, w):
+        return -self.mpf(w) * self.opto(w) * (self.integrator(w) + 1)
+    
+    def stability_check(self):
+        target_phase_margin = 50
+
+        while True:
+            fb = self.fb(self.w0)
+
+            phase_margin = np.angle(fb, deg=True)
+            gain_db = 20 * np.log10(abs(fb))
+
+            print(f"Phase margin: {phase_margin:.2f}°")
+            print(f"Gain margin: {gain_db:.2f} dB")
+            
+            if phase_margin >= target_phase_margin:
+                break
+            
+            self.R_ZCTL *= 1.05
+            print(f"→ Increasing R_ZCTL to {self.fmt(self.R_ZCTL, 'Ω')}")
+            self.G_MO = np.abs(self.gmo(self.w0))
+            print(f"→ New G_MO at F0: {self.G_MO:.2f}")
+            self.R_IZ = self.R_FBU * (1 / (self.G_MO) - 1)
+            print(f"→ New R_IZ: {self.fmt(self.R_IZ, 'Ω')}")
+            
     def pretty(self):
         print("\n=== DESIGN SUMMARY ===\n")
 
@@ -370,9 +395,6 @@ class Designer:
         print(f"G_MO            : {self.G_MO:.2f}")
         print(f"R_IZ            : {self.fmt(self.R_IZ, 'Ω')}")
 
-        
-
-
     def plot_mpf(self, fmin=1e3, fmax=1e6, points=1000):
         freqs = np.logspace(np.log10(fmin), np.log10(fmax), points)
         w = 2 * np.pi * freqs
@@ -398,7 +420,7 @@ class Designer:
         plt.suptitle("Modulator Power Stage (MPF) Bode Plot")
         plt.show()
 
-    
 designer = Designer()
 designer.pretty()
 designer.plot_mpf()
+designer.stability_check()
