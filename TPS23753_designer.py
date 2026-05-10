@@ -167,7 +167,7 @@ class Designer:
         # ---- Opto-Isolator LED Bias Current ----
         self.V_LED_OPTO_K = self.V_LED_OPTO + 0.15
         self.R_OB_E = (self.V_OUT_NOM - self.V_LED_OPTO - self.V_LED_OPTO_K) / self.I_LED_OPTO
-        self.R_OB = 402
+        self.R_OB = 560
 
         # ---- Opto-Isolator transistor bias current ----
         self.V_ZDC_MAX = 1.7
@@ -177,7 +177,7 @@ class Designer:
         self.V_CTL_MOM = (self.V_ZDC_MAX + self.V_CTL_MAX) / 2
         
         self.R_CTL_E = (self.V_B - self.V_ZDC_MAX) / (self.I_LED_OPTO * self.CTR_2mA)
-        self.R_CTL = 1.5e3
+        self.R_CTL = 1.82e3
         
         #
         # ==== Frequency characteristics ====
@@ -206,7 +206,7 @@ class Designer:
 
         # ---- Inner loop control zero resistor ----
         self.R_ZCTL_E = self.R_CTL / 10
-        self.R_ZCTL = 160
+        self.R_ZCTL = 174
 
         # ----- Outer loop compensation ----
         self.G_MO = np.abs(self.gmo(self.w0))
@@ -393,7 +393,11 @@ class Designer:
         print("\n---- Loop compensation ----")
         print(f"F0              : {self.fmt(self.F0, 'Hz')}")
         print(f"G_MO            : {self.G_MO:.2f}")
+        print(f"R_IZ(est.)      : {self.fmt(self.R_IZ_E, 'Ω')}")
         print(f"R_IZ            : {self.fmt(self.R_IZ, 'Ω')}")
+        print(f"C_IZ(est.)      : {self.fmt(self.C_IZ_E, 'F')}")
+        print(f"C_IZ            : {self.fmt(self.C_IZ, 'F')}")
+        print(f"C_IP            : {self.fmt(self.C_IP, 'F')}")
 
     def plot_mpf(self, fmin=1e3, fmax=1e6, points=1000):
         freqs = np.logspace(np.log10(fmin), np.log10(fmax), points)
@@ -422,5 +426,5 @@ class Designer:
 
 designer = Designer()
 designer.pretty()
-designer.plot_mpf()
+#designer.plot_mpf()
 designer.stability_check()
